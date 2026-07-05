@@ -10,14 +10,14 @@
 
 ```mermaid
 graph TD
-    START((START)) --> router_node{路由决策<br/>(纯代码判断)}
+    START((START)) --> router_node{路由决策<br/>纯代码判断}
     
-    router_node -- "包含 CSV 跑表数据" --> data_node[data_node<br/>解析 CSV 并计算 TRIMP 负荷]
-    router_node -- "包含理论/恢复等关键词" --> rag_node[rag_node<br/>查询本地 ChromaDB 知识库]
-    router_node -- "普通闲聊" --> llm_node[llm_node<br/>大语言模型综合总结]
+    router_node -->|包含 CSV 跑表数据| data_node[data_node<br/>解析 CSV 并计算 TRIMP 负荷]
+    router_node -->|包含理论/恢复等关键词| rag_node[rag_node<br/>查询本地 ChromaDB 知识库]
+    router_node -->|普通闲聊| llm_node[llm_node<br/>大语言模型综合总结]
     
-    data_node -- "提取的生理指标注入 Context" --> llm_node
-    rag_node -- "检索的训练理论注入 Context" --> llm_node
+    data_node -->|提取的生理指标注入 Context| llm_node
+    rag_node -->|检索的训练理论注入 Context| llm_node
     
     llm_node --> END((END))
 ```
