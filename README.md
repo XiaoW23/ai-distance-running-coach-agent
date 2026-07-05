@@ -20,6 +20,7 @@ graph TD
     rag_node -->|检索的训练理论注入 Context| llm_node
     
     llm_node --> END((END))
+```
 
 ## 🚀 极速体验指南
 
