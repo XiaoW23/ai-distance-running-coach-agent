@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能中长跑周期化训练与负荷监控 Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        /* Custom scrollbar for chat box */
+        #chat-box::-webkit-scrollbar { width: 6px; }
+        #chat-box::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        #chat-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        #chat-box::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .typing-indicator::after {
+            content: '▌';
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Markdown rendering styles */
+        .markdown-body {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            word-wrap: break-word;
+        }
+        .markdown-body p { margin-bottom: 0.75rem; }
+        .markdown-body p:last-child { margin-bottom: 0; }
+        .markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.3rem; }
+        .markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+        .markdown-body h3 { font-size: 1.125rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+        .markdown-body strong { font-weight: 600; color: #0f172a; }
+        .markdown-body ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        .markdown-body ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        .markdown-body li { margin-bottom: 0.25rem; }
+        .markdown-body table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; margin-bottom: 1rem; }
+        .markdown-body th, .markdown-body td { border: 1px solid #cbd5e1; padding: 0.5rem; }
+        .markdown-body th { background-color: #f8fafc; font-weight: 600; text-align: left; }
+        .markdown-body pre { background-color: #1e293b; color: #f8fafc; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; }
+        .markdown-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875em; }
+        .markdown-body p > code, .markdown-body li > code, .markdown-body td > code { background-color: #e2e8f0; color: #ef4444; padding: 0.125rem 0.25rem; border-radius: 0.25rem; }
+        .markdown-body blockquote { border-left: 4px solid #cbd5e1; padding-left: 1rem; color: #64748b; font-style: italic; margin-bottom: 0.75rem; background-color: #f8fafc; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-100 via-slate-50 to-sky-200 h-screen flex font-sans text-slate-800 overflow-hidden bg-fixed">
+    
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-64 bg-white/40 backdrop-blur-xl border-r border-white/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] flex-col hidden md:flex z-20 absolute md:relative h-full transition-all">
+        <div class="p-4 border-b border-white/40 flex justify-between items-center">
+            <button id="new-chat-btn" class="flex-1 bg-blue-600/90 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 backdrop-blur-md">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                新建对话
+            </button>
+            <button id="close-sidebar-btn" class="md:hidden ml-2 text-slate-500 hover:text-slate-800">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div id="session-list" class="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-hide">
+            <!-- Sessions will be injected here -->
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col h-full relative">
+        <!-- Header -->
+        <header class="bg-white/60 backdrop-blur-md shadow-[0_4px_30px_rgba(0,0,0,0.05)] border-b border-white/30 p-4 sticky top-0 z-10 flex items-center">
+            <button id="menu-btn" class="md:hidden mr-3 text-slate-600 hover:text-blue-600 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="max-w-4xl w-full mx-auto flex items-center justify-between">
+                <h1 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                AI 中长跑训练教练 (LangGraph + RAG)
+            </h1>
+            <div class="flex gap-2">
+                <button id="copy-text-btn" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-3 rounded-lg flex items-center gap-1 transition-colors border border-slate-200">
+                    📄 复制文本
+                </button>
+                <button id="export-img-btn" class="text-sm bg-blue-50 hover:bg-blue-100 text-blue-600 py-1.5 px-3 rounded-lg flex items-center gap-1 transition-colors border border-blue-200">
+                    📸 存为长图
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Chat Area -->
+    <main class="flex-1 max-w-4xl w-full mx-auto p-4 flex flex-col h-[calc(100vh-140px)]">
+        <!-- Chat History -->
+        <div id="chat-box" class="flex-1 bg-white/30 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.05)] border border-white/50 p-4 overflow-y-auto mb-4 flex flex-col gap-4">
+            <!-- Greeting Message -->
+            <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full text-center leading-8 flex-shrink-0 font-bold text-sm bg-blue-100/80 text-blue-600 backdrop-blur-sm border border-blue-200/50 shadow-sm">AI</div>
+                <div class="bg-white/80 backdrop-blur-md border border-white/50 text-slate-800 p-3 rounded-2xl rounded-tl-none max-w-[85%] shadow-sm">
+                    你好！我是基于《丹尼尔斯经典跑步训练法》的中长跑 AI 教练。你可以告诉我你最近的跑步感受，或者上传你的 Coros 跑表数据 (CSV 格式)，我来帮你分析训练负荷并调整课表。
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="bg-white/50 backdrop-blur-lg rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.05)] border border-white/50 p-3">
+            <!-- File Upload & Status -->
+            <div class="mb-2 flex items-center gap-2 text-sm">
+                <label for="csv-upload" class="cursor-pointer bg-white/70 hover:bg-white backdrop-blur-sm text-slate-700 py-1.5 px-3 rounded-lg flex items-center gap-1 transition-colors border border-white/50 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    上传 Coros 数据 (CSV)
+                </label>
+                <input type="file" id="csv-upload" accept=".csv" class="hidden" />
+                <span id="file-status" class="text-slate-500 italic hidden">未选择文件</span>
+                <button id="clear-file" class="hidden text-red-500 hover:text-red-700 ml-1" title="清除已选择的文件">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            
+            <div class="flex items-end gap-2">
+                <textarea id="user-input" class="flex-1 bg-white/60 backdrop-blur-sm border border-white/50 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white/80 transition-all min-h-[60px] max-h-[120px]" placeholder="描述你的训练感受或提问... (按 Enter 发送，Shift+Enter 换行)"></textarea>
+                <button id="send-btn" class="bg-blue-600/90 hover:bg-blue-600 backdrop-blur-md text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-colors flex items-center gap-2 h-[60px]">
+                    发送
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                </button>
+            </div>
+        </div>
+    </main>
+</div>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const csvUpload = document.getElementById('csv-upload');
+        const fileStatus = document.getElementById('file-status');
+        const sidebar = document.getElementById('sidebar');
+        const clearFileBtn = document.getElementById('clear-file');
+        
+        let csvStringData = ""; 
+        let currentFileName = "";
+        let currentThreadId = null;
+        let messageCount = 0;
+        
+        const greetingHtml = `
+            <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full text-center leading-8 flex-shrink-0 font-bold text-sm bg-blue-100/80 text-blue-600 backdrop-blur-sm border border-blue-200/50 shadow-sm">AI</div>
+                <div class="bg-white/80 backdrop-blur-md border border-white/50 text-slate-800 p-3 rounded-2xl rounded-tl-none max-w-[85%] shadow-sm">
+                    你好！我是基于《丹尼尔斯经典跑步训练法》的中长跑 AI 教练。你可以告诉我你最近的跑步感受，或者上传你的 Coros 跑表数据 (CSV 格式)，我来帮你分析训练负荷并调整课表。
+                </div>
+            </div>`;
+
+        document.getElementById('menu-btn').addEventListener('click', () => { sidebar.classList.remove('hidden'); sidebar.classList.add('flex'); });
+        document.getElementById('close-sidebar-btn').addEventListener('click', () => { sidebar.classList.add('hidden'); });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            marked.setOptions({ breaks: true, gfm: true });
+            userInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                const newHeight = this.scrollHeight;
+                this.style.height = (newHeight < 120 ? newHeight : 120) + 'px';
+            });
+            await loadSessions();
+            document.getElementById('new-chat-btn').addEventListener('click', createSession);
+        });
+
+        async function loadSessions() {
+            try {
+                const res = await fetch('/sessions');
+                const data = await res.json();
+                const list = document.getElementById('session-list');
+                list.innerHTML = '';
+                if (data.sessions.length === 0) { await createSession(); return; }
+                if (!currentThreadId) currentThreadId = data.sessions[0].thread_id;
+                data.sessions.forEach(s => {
+                    const container = document.createElement('div');
+                    container.className = `flex items-center w-full rounded-xl border transition-colors ${s.thread_id === currentThreadId ? 'bg-white/80 shadow-sm border-white/60 text-slate-800 font-semibold' : 'hover:bg-white/40 border-transparent text-slate-600'}`;
+                    
+                    const btn = document.createElement('button');
+                    btn.className = `flex-1 text-left px-3 py-2.5 text-sm truncate`;
+                    btn.textContent = s.title;
+                    btn.onclick = () => { if (window.innerWidth < 768) sidebar.classList.add('hidden'); switchSession(s.thread_id); };
+                    
+                    const editBtn = document.createElement('button');
+                    editBtn.className = `p-1 text-slate-400 hover:text-blue-500 transition-colors text-xs`;
+                    editBtn.title = "重命名";
+                    editBtn.innerHTML = `✏️`;
+                    editBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.value = s.title;
+                        input.className = 'flex-1 px-2 py-1 text-sm bg-white border border-blue-300 rounded outline-none';
+                        
+                        const saveTitle = async () => {
+                            const newTitle = input.value.trim() || s.title;
+                            btn.textContent = newTitle;
+                            if (input.parentNode) container.replaceChild(btn, input);
+                            if (newTitle !== s.title) {
+                                s.title = newTitle;
+                                await fetch('/sessions/' + s.thread_id, {
+                                    method: 'PUT',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({title: newTitle})
+                                });
+                            }
+                        };
+                        
+                        input.onblur = saveTitle;
+                        input.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); } };
+                        
+                        container.replaceChild(input, btn);
+                        input.focus();
+                    };
+                    
+                    const delBtn = document.createElement('button');
+                    delBtn.className = `pr-3 pl-1 text-slate-400 hover:text-red-500 transition-colors`;
+                    delBtn.title = "删除对话";
+                    delBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>`;
+                    delBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        if (confirm('确定要删除该对话吗？')) {
+                            await fetch('/sessions/' + s.thread_id, { method: 'DELETE' });
+                            if (s.thread_id === currentThreadId) { currentThreadId = null; chatBox.innerHTML = ''; messageCount = 0; }
+                            await loadSessions();
+                        }
+                    };
+                    
+                    container.appendChild(btn);
+                    container.appendChild(editBtn);
+                    container.appendChild(delBtn);
+                    list.appendChild(container);
+                });
+                if (messageCount === 0 && !chatBox.innerHTML) await switchSession(currentThreadId);
+            } catch (e) { console.error(e); }
+        }
+
+        async function createSession() {
+            try {
+                const title = '新对话 ' + new Date().toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                const res = await fetch('/sessions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title}) });
+                const data = await res.json();
+                await switchSession(data.thread_id);
+            } catch (e) { console.error(e); }
+        }
+
+        async function switchSession(threadId) {
+            currentThreadId = threadId;
+            messageCount = 0;
+            chatBox.innerHTML = greetingHtml;
+            try {
+                const res = await fetch('/history/' + threadId);
+                const data = await res.json();
+                data.messages.forEach(msg => {
+                    if (msg.role === 'ai') {
+                        const aiBubble = appendMessage('ai', '', true);
+                        const mdContainer = document.createElement('div');
+                        mdContainer.className = 'markdown-body';
+                        mdContainer.innerHTML = marked.parse(msg.content);
+                        aiBubble.appendChild(mdContainer);
+                    } else {
+                        appendMessage('user', msg.content);
+                    }
+                });
+                await loadSessions();
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        chatBox.scrollTo({
+                            top: chatBox.scrollHeight,
+                            behavior: 'smooth'
+                        });
+                    }, 10);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        function checkTurnLimit() {
+            if (messageCount >= 20 && !document.getElementById('turn-limit-badge')) {
+                const badge = document.createElement('div');
+                badge.id = 'turn-limit-badge';
+                badge.className = 'text-center text-xs text-orange-600 bg-orange-100/90 backdrop-blur-md px-4 py-2 rounded-full mx-auto my-3 w-max border border-orange-200/50 shadow-md';
+                badge.textContent = '💡 对话较长，建议开启【+ 新建对话】以保证教练专注度。';
+                chatBox.appendChild(badge);
+            }
+        }
+
+        csvUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            currentFileName = file.name;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                csvStringData = event.target.result;
+                fileStatus.textContent = `📎 ${currentFileName}`;
+                fileStatus.classList.remove('hidden');
+                clearFileBtn.classList.remove('hidden');
+            };
+            reader.readAsText(file);
+        });
+
+        clearFileBtn.addEventListener('click', () => {
+            csvUpload.value = ''; csvStringData = ''; fileStatus.classList.add('hidden'); clearFileBtn.classList.add('hidden');
+        });
+
+        function appendMessage(role, content, isHtml = false) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex items-start gap-3 ${role === 'user' ? 'flex-row-reverse' : ''}`;
+            
+            const avatar = document.createElement('div');
+            avatar.className = `w-8 h-8 rounded-full text-center leading-8 flex-shrink-0 font-bold text-sm shadow-sm backdrop-blur-sm border ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50' : 'bg-blue-100/80 text-blue-600 border-blue-200/50'}`;
+            avatar.textContent = role === 'user' ? '我' : 'AI';
+            
+            const bubble = document.createElement('div');
+            bubble.className = `p-3 rounded-2xl max-w-[85%] shadow-sm backdrop-blur-md border ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50 rounded-tr-none whitespace-pre-wrap' : 'bg-white/80 text-slate-800 border-white/50 rounded-tl-none'}`;
+            if (isHtml) bubble.innerHTML = content; else bubble.textContent = content;
+            
+            wrapper.appendChild(avatar);
+            wrapper.appendChild(bubble);
+            chatBox.appendChild(wrapper);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            if (role === 'user') messageCount++;
+            checkTurnLimit();
+            return bubble;
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text && !csvStringData) return;
+            const displayPrompt = csvStringData ? `📎 ${currentFileName}\n${text}` : text;
+            appendMessage('user', displayPrompt);
+            userInput.value = '';
+            userInput.style.height = 'auto'; // reset height after send
+            
+            const finalPrompt = csvStringData ? `【附件】\n${csvStringData}\n\n【提问】\n${text}` : text;
+            sendBtn.disabled = true;
+            sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            const aiBubble = appendMessage('ai', '', true);
+            aiBubble.classList.add('typing-indicator');
+            const mdContainer = document.createElement('div');
+            mdContainer.className = 'markdown-body';
+            aiBubble.appendChild(mdContainer);
+
+            let toolStatusDiv = null;
+            let currentText = '';
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: finalPrompt, thread_id: currentThreadId })
+                });
+
+                if (!response.ok) throw new Error('网络请求失败');
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); 
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.slice(6);
+                            if (dataStr === '[DONE]') {
+                                sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                                sendBtn.disabled = false;
+                                if (messageCount === 1) {
+                                    setTimeout(() => loadSessions(), 1000);
+                                }
+                                return;
+                            }
+                            try {
+                                const data = JSON.parse(dataStr);
+                                if (data.type === 'token') {
+                                    currentText += data.content;
+                                    // Parse accumulated text to HTML
+                                    mdContainer.innerHTML = marked.parse(currentText);
+                                } else if (data.type === 'tool_start') {
+                                    if (!toolStatusDiv) {
+                                        toolStatusDiv = document.createElement('div');
+                                        toolStatusDiv.className = 'text-xs text-blue-500 bg-blue-100/50 p-2 rounded mt-2 mb-2 italic border border-blue-200';
+                                        // Insert above markdown container
+                                        aiBubble.insertBefore(toolStatusDiv, mdContainer);
+                                    }
+                                    toolStatusDiv.textContent = data.content;
+                                } else if (data.type === 'tool_end') {
+                                    if (toolStatusDiv) {
+                                        toolStatusDiv.textContent = data.content;
+                                        setTimeout(() => {
+                                            if(toolStatusDiv) { toolStatusDiv.remove(); toolStatusDiv = null; }
+                                        }, 2000);
+                                    }
+                                } else if (data.type === 'error') {
+                                    currentText += `\n\n**[错误: ${data.content}]**`;
+                                    mdContainer.innerHTML = marked.parse(currentText);
+                                }
+                            } catch (e) {
+                                console.error('Parse Error:', e, dataStr);
+                            }
+                            chatBox.scrollTop = chatBox.scrollHeight;
+                        }
+                    }
+                }
+            } catch (err) {
+                aiBubble.classList.remove('typing-indicator');
+                currentText += `\n\n**[连接出错: ${err.message}]**`;
+                mdContainer.innerHTML = marked.parse(currentText);
+            } finally {
+                aiBubble.classList.remove('typing-indicator');
+                sendBtn.disabled = false;
+                sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // ================= Export Features =================
+        const copyTextBtn = document.getElementById('copy-text-btn');
+        const exportImgBtn = document.getElementById('export-img-btn');
+
+        // Copy Text
+        copyTextBtn.addEventListener('click', () => {
+            let fullText = "【智能中长跑教练 训练分析记录】\n\n";
+            const messages = chatBox.querySelectorAll('.flex.items-start');
+            messages.forEach(msg => {
+                const isUser = msg.classList.contains('flex-row-reverse');
+                const role = isUser ? "我" : "AI 教练";
+                
+                const bubble = msg.querySelector('.p-3.rounded-2xl');
+                let content = bubble ? bubble.innerText : "";
+                
+                // If it contains markdown-body, get innerText from it to avoid raw HTML tags
+                if (bubble && bubble.querySelector('.markdown-body')) {
+                    content = bubble.querySelector('.markdown-body').innerText;
+                }
+                
+                // Remove invisible tool status texts if they slipped in
+                content = content.replace(/【跑表数据解析与负荷评估】|【《丹尼尔斯.*】/g, '');
+                
+                fullText += `[${role}]:\n${content.trim()}\n\n`;
+            });
+
+            navigator.clipboard.writeText(fullText).then(() => {
+                const originalText = copyTextBtn.innerHTML;
+                copyTextBtn.innerHTML = "✅ 已复制";
+                setTimeout(() => copyTextBtn.innerHTML = originalText, 2000);
+            }).catch(err => {
+                alert("复制失败: " + err);
+            });
+        });
+
+        // Export as Image
+        exportImgBtn.addEventListener('click', () => {
+            const originalText = exportImgBtn.innerHTML;
+            exportImgBtn.innerHTML = "⏳ 生成中...";
+            exportImgBtn.disabled = true;
+            
+            // Temporary adjust styles for full snapshot
+            const originalOverflow = chatBox.style.overflowY;
+            const originalHeight = chatBox.style.height;
+            chatBox.style.overflowY = 'visible';
+            chatBox.style.height = 'max-content';
+
+            // Wait a tiny bit for DOM reflow
+            setTimeout(() => {
+                html2canvas(chatBox, {
+                    scale: 2, // High resolution
+                    backgroundColor: "#ffffff",
+                    useCORS: true
+                }).then(canvas => {
+                    // Restore styles
+                    chatBox.style.overflowY = originalOverflow;
+                    chatBox.style.height = originalHeight;
+                    
+                    const link = document.createElement('a');
+                    link.download = `AI教练分析报告_${new Date().getTime()}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                    
+                    exportImgBtn.innerHTML = "✅ 保存成功";
+                    setTimeout(() => {
+                        exportImgBtn.innerHTML = originalText;
+                        exportImgBtn.disabled = false;
+                    }, 2000);
+                }).catch(err => {
+                    chatBox.style.overflowY = originalOverflow;
+                    chatBox.style.height = originalHeight;
+                    exportImgBtn.innerHTML = "❌ 生成失败";
+                    setTimeout(() => {
+                        exportImgBtn.innerHTML = originalText;
+                        exportImgBtn.disabled = false;
+                    }, 2000);
+                });
+            }, 100);
+        });
+    </script>
+</body>
+</html>

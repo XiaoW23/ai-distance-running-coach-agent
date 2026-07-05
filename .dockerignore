@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+chroma_db/
+.git/
+start.bat
+.DS_Store

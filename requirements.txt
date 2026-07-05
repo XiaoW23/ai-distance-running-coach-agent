@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+langchain
+langchain-openai
+langchain-community
+langgraph
+langgraph-checkpoint
+langgraph-checkpoint-sqlite
+chromadb
+python-dotenv
+pydantic
+sse-starlette
+langchain-huggingface
+sentence-transformers
