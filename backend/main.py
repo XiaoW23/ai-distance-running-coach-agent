@@ -10,7 +10,7 @@ import uuid
 import os
 import aiosqlite
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from backend.agent import get_agent
@@ -32,6 +32,12 @@ class SessionCreate(BaseModel):
 
 class SessionUpdate(BaseModel):
     title: str
+
+class TruncateRequest(BaseModel):
+    from_message_id: str
+
+class DeleteMessagesRequest(BaseModel):
+    message_ids: list[str]
 
 async def generate_title_async(thread_id: str, first_message: str):
     try:
@@ -77,9 +83,49 @@ async def get_history(thread_id: str):
         state = await agent.aget_state(config)
         if hasattr(state, 'values') and 'messages' in state.values:
             for msg in state.values['messages']:
-                role = "user" if msg.type == "human" else "ai"
-                messages.append({"role": role, "content": msg.content})
+                if msg.type in ["human", "ai"] and msg.content:
+                    role = "user" if msg.type == "human" else "ai"
+                    messages.append({"id": msg.id, "role": role, "content": msg.content})
     return {"messages": messages}
+
+@app.post("/history/{thread_id}/truncate")
+async def truncate_history(thread_id: str, request: TruncateRequest):
+    async with AsyncSqliteSaver.from_conn_string("running_memory.db") as checkpointer:
+        agent = get_agent(checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+        state = await agent.aget_state(config)
+        
+        if not hasattr(state, 'values') or 'messages' not in state.values:
+            return {"status": "ok"}
+            
+        messages = state.values['messages']
+        idx = -1
+        for i, msg in enumerate(messages):
+            if getattr(msg, 'id', None) == request.from_message_id:
+                idx = i
+                break
+                
+        if idx == -1:
+            return {"status": "ok", "deleted": 0}
+            
+        messages_to_delete = messages[idx:]
+        if messages_to_delete:
+            remove_messages = [RemoveMessage(id=msg.id) for msg in messages_to_delete if getattr(msg, 'id', None)]
+            await agent.aupdate_state(config, {"messages": remove_messages})
+            
+        return {"status": "ok", "deleted": len(messages_to_delete)}
+
+@app.delete("/history/{thread_id}/messages")
+async def delete_messages(thread_id: str, request: DeleteMessagesRequest):
+    async with AsyncSqliteSaver.from_conn_string("running_memory.db") as checkpointer:
+        agent = get_agent(checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+        
+        remove_messages = [RemoveMessage(id=mid) for mid in request.message_ids if mid]
+        if remove_messages:
+            await agent.aupdate_state(config, {"messages": remove_messages})
+        
+        return {"status": "ok"}
 
 @app.delete("/sessions/{thread_id}")
 def delete_session(thread_id: str):

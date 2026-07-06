@@ -136,18 +136,23 @@
         const sidebar = document.getElementById('sidebar');
         const clearFileBtn = document.getElementById('clear-file');
         
+        let currentMessages = [];
         let csvStringData = ""; 
         let currentFileName = "";
         let currentThreadId = null;
         let messageCount = 0;
-        
-        const greetingHtml = `
-            <div class="flex items-start gap-3">
-                <div class="w-8 h-8 rounded-full text-center leading-8 flex-shrink-0 font-bold text-sm bg-blue-100/80 text-blue-600 backdrop-blur-sm border border-blue-200/50 shadow-sm">AI</div>
-                <div class="bg-white/80 backdrop-blur-md border border-white/50 text-slate-800 p-3 rounded-2xl rounded-tl-none max-w-[85%] shadow-sm">
-                    你好！我是基于《丹尼尔斯经典跑步训练法》的中长跑 AI 教练。你可以告诉我你最近的跑步感受，或者上传你的 Coros 跑表数据 (CSV 格式)，我来帮你分析训练负荷并调整课表。
+        function renderWelcomeScreen() {
+            chatBox.innerHTML = `
+                <div id="welcome-screen" class="flex flex-col items-center justify-center h-full text-center p-6 mt-20 opacity-0 transition-opacity duration-500" style="opacity: 1;">
+                    <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-3xl mb-4 shadow-sm border-2 border-white">🏃‍♂️</div>
+                    <h2 class="text-xl font-bold text-slate-700 mb-2">你好！我是中长跑 AI 教练</h2>
+                    <p class="text-sm text-slate-500 max-w-md leading-relaxed">
+                        基于《丹尼尔斯经典跑步训练法》打造。<br>
+                        你可以直接向我询问配速规划与训练计划，<br>或上传跑表 CSV 数据进行智能分析。
+                    </p>
                 </div>
-            </div>`;
+            `;
+        }
 
         document.getElementById('menu-btn').addEventListener('click', () => { sidebar.classList.remove('hidden'); sidebar.classList.add('flex'); });
         document.getElementById('close-sidebar-btn').addEventListener('click', () => { sidebar.classList.add('hidden'); });
@@ -243,25 +248,45 @@
             } catch (e) { console.error(e); }
         }
 
-        async function switchSession(threadId) {
+        async function switchSession(threadId, softRefresh = false) {
             currentThreadId = threadId;
-            messageCount = 0;
-            chatBox.innerHTML = greetingHtml;
             try {
                 const res = await fetch('/history/' + threadId);
                 const data = await res.json();
-                data.messages.forEach(msg => {
+                currentMessages = data.messages || [];
+                
+                if (!softRefresh) {
+                    chatBox.innerHTML = '';
+                    if (currentMessages.length === 0) {
+                        renderWelcomeScreen();
+                    }
+                } else {
+                    const messages = chatBox.querySelectorAll('.flex.items-start');
+                    messages.forEach(m => m.remove());
+                    if (currentMessages.length === 0) {
+                        renderWelcomeScreen();
+                    }
+                }
+                
+                messageCount = 0;
+                
+                const aiMessages = currentMessages.filter(m => m.role === 'ai');
+                const lastAiMessageId = aiMessages.length > 0 ? aiMessages[aiMessages.length - 1].id : null;
+                
+                currentMessages.forEach(msg => {
                     if (msg.role === 'ai') {
-                        const aiBubble = appendMessage('ai', '', true);
+                        const isLastAi = msg.id === lastAiMessageId;
+                        const aiBubble = appendMessage('ai', '', true, msg.id, msg.content, isLastAi);
                         const mdContainer = document.createElement('div');
                         mdContainer.className = 'markdown-body';
                         mdContainer.innerHTML = marked.parse(msg.content);
                         aiBubble.appendChild(mdContainer);
                     } else {
-                        appendMessage('user', msg.content);
+                        appendMessage('user', msg.content, false, msg.id, msg.content);
                     }
                 });
-                await loadSessions();
+                
+                if (!softRefresh) await loadSessions();
                 requestAnimationFrame(() => {
                     setTimeout(() => {
                         chatBox.scrollTo({
@@ -301,17 +326,153 @@
             csvUpload.value = ''; csvStringData = ''; fileStatus.classList.add('hidden'); clearFileBtn.classList.add('hidden');
         });
 
-        function appendMessage(role, content, isHtml = false) {
+        async function enableEditMode(bubble, wrapper, msgId, oldContent) {
+            // 解除 Flex 收缩并撑满宽度
+            wrapper.className = 'w-full relative my-2';
+            wrapper.innerHTML = '';
+            
+            // 构建商业级样式的标准编辑卡片
+            const editorCard = document.createElement('div');
+            editorCard.className = 'w-full bg-white border-2 border-blue-500 rounded-2xl p-4 shadow-xl transition-all duration-200';
+            
+            const textarea = document.createElement('textarea');
+            textarea.className = 'w-full bg-transparent border-0 focus:ring-0 focus:outline-none p-0 text-sm md:text-base text-slate-800 leading-relaxed resize-none overflow-hidden';
+            textarea.value = oldContent;
+            
+            // 绑定输入监听，实时高度自适应
+            textarea.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = this.scrollHeight + 'px';
+            });
+            
+            const actions = document.createElement('div');
+            actions.className = 'flex justify-end items-center gap-2 mt-3 pt-2 border-t border-slate-100';
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'px-4 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 rounded-lg transition-colors';
+            cancelBtn.textContent = '取消';
+            cancelBtn.onclick = () => switchSession(currentThreadId, true);
+            
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors';
+            saveBtn.textContent = '保存并提交';
+            saveBtn.onclick = async () => {
+                const newText = textarea.value.trim();
+                if (!newText) return;
+                
+                saveBtn.disabled = true;
+                saveBtn.textContent = '处理中...';
+                
+                // 1. 原地销毁当前气泡及后续所有气泡
+                let sibling = wrapper.nextElementSibling;
+                while (sibling) {
+                    let next = sibling.nextElementSibling;
+                    sibling.remove();
+                    sibling = next;
+                }
+                wrapper.remove();
+                
+                try {
+                    // 2. 安静触发后端截断
+                    await fetch('/history/' + currentThreadId + '/truncate', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({from_message_id: msgId})
+                    });
+                    
+                    // 3. 直接触发新一轮 SSE 请求
+                    sendMessage(newText);
+                } catch(e) { console.error(e); }
+            };
+            
+            textarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    saveBtn.click();
+                }
+            });
+            
+            actions.appendChild(cancelBtn);
+            actions.appendChild(saveBtn);
+            editorCard.appendChild(textarea);
+            editorCard.appendChild(actions);
+            wrapper.appendChild(editorCard);
+            
+            // 高度与宽度的双重 1:1 锁定与初始化
+            setTimeout(() => {
+                textarea.style.height = 'auto';
+                textarea.style.height = textarea.scrollHeight + 'px';
+                textarea.focus();
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            }, 0);
+        }
+
+        async function regenerateAction() {
+            let lastUserMsg = null;
+            for (let i = currentMessages.length - 1; i >= 0; i--) {
+                if (currentMessages[i].role === 'user' && currentMessages[i].content) {
+                    lastUserMsg = currentMessages[i];
+                    break;
+                }
+            }  
+            if (!lastUserMsg || !lastUserMsg.content) {
+                console.error("未找到有效的历史提问，终止重跑！");
+                return;
+            }
+            const userText = lastUserMsg.content;
+            const targetMsgId = lastUserMsg.id;
+            
+            try {
+                await fetch('/history/' + currentThreadId + '/truncate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({from_message_id: targetMsgId})
+                });
+                await switchSession(currentThreadId, true);
+                sendMessage(userText);
+            } catch(e) { console.error(e); }
+        }
+
+        function appendMessage(role, content, isHtml = false, msgId = null, rawContent = null, isLastAi = false) {
+            const welcomeScreen = document.getElementById('welcome-screen');
+            if (welcomeScreen) welcomeScreen.remove();
+            
             const wrapper = document.createElement('div');
-            wrapper.className = `flex items-start gap-3 ${role === 'user' ? 'flex-row-reverse' : ''}`;
+            wrapper.className = `flex items-start gap-3 relative group ${role === 'user' ? 'flex-row-reverse' : ''}`;
             
             const avatar = document.createElement('div');
             avatar.className = `w-8 h-8 rounded-full text-center leading-8 flex-shrink-0 font-bold text-sm shadow-sm backdrop-blur-sm border ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50' : 'bg-blue-100/80 text-blue-600 border-blue-200/50'}`;
             avatar.textContent = role === 'user' ? '我' : 'AI';
             
             const bubble = document.createElement('div');
-            bubble.className = `p-3 rounded-2xl max-w-[85%] shadow-sm backdrop-blur-md border ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50 rounded-tr-none whitespace-pre-wrap' : 'bg-white/80 text-slate-800 border-white/50 rounded-tl-none'}`;
+            bubble.className = `p-3 rounded-2xl max-w-[85%] shadow-sm backdrop-blur-md border relative ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50 rounded-tr-none whitespace-pre-wrap' : 'bg-white/80 text-slate-800 border-white/50 rounded-tl-none'}`;
             if (isHtml) bubble.innerHTML = content; else bubble.textContent = content;
+            
+            if (msgId) {
+                bubble.dataset.msgId = msgId;
+                if (rawContent) bubble.dataset.rawContent = rawContent;
+                
+                const toolbar = document.createElement('div');
+                toolbar.className = `absolute -bottom-3 ${role === 'user' ? '-left-2' : '-right-2'} hidden group-hover:flex gap-1 items-center bg-white shadow rounded-md px-1 py-0.5 border text-xs z-10`;
+                
+                if (role === 'user') {
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'text-xs hover:bg-slate-100 text-slate-600 px-1 rounded transition-colors';
+                    editBtn.innerHTML = '✎ 编辑';
+                    editBtn.onclick = () => enableEditMode(bubble, wrapper, msgId, rawContent);
+                    toolbar.appendChild(editBtn);
+                } else if (role === 'ai' && isLastAi) {
+                    const regenBtn = document.createElement('button');
+                    regenBtn.className = 'text-xs hover:bg-slate-100 text-slate-600 px-1 rounded transition-colors';
+                    regenBtn.innerHTML = '🔄 重试';
+                    regenBtn.onclick = () => regenerateAction();
+                    toolbar.appendChild(regenBtn);
+                }
+                
+                if (toolbar.children.length > 0) {
+                    bubble.appendChild(toolbar);
+                }
+            }
             
             wrapper.appendChild(avatar);
             wrapper.appendChild(bubble);
@@ -322,15 +483,17 @@
             return bubble;
         }
 
-        async function sendMessage() {
-            const text = userInput.value.trim();
+        async function sendMessage(overrideText = null) {
+            let text = typeof overrideText === 'string' ? overrideText : userInput.value.trim();
             if (!text && !csvStringData) return;
-            const displayPrompt = csvStringData ? `📎 ${currentFileName}\n${text}` : text;
+            const displayPrompt = csvStringData && !overrideText ? `📎 ${currentFileName}\n${text}` : text;
             appendMessage('user', displayPrompt);
-            userInput.value = '';
-            userInput.style.height = 'auto'; // reset height after send
+            if (typeof overrideText !== 'string') {
+                userInput.value = '';
+                userInput.style.height = 'auto'; // reset height after send
+            }
             
-            const finalPrompt = csvStringData ? `【附件】\n${csvStringData}\n\n【提问】\n${text}` : text;
+            const finalPrompt = csvStringData && !overrideText ? `【附件】\n${csvStringData}\n\n【提问】\n${text}` : text;
             sendBtn.disabled = true;
             sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
             const aiBubble = appendMessage('ai', '', true);
@@ -414,10 +577,13 @@
                 aiBubble.classList.remove('typing-indicator');
                 sendBtn.disabled = false;
                 sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                if (currentThreadId) {
+                    await switchSession(currentThreadId, true);
+                }
             }
         }
 
-        sendBtn.addEventListener('click', sendMessage);
+        sendBtn.addEventListener('click', () => sendMessage());
         userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
