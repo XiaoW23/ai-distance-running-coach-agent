@@ -12,6 +12,8 @@ import aiosqlite
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langchain_core.runnables import RunnableConfig
+from pydantic import SecretStr
 
 from backend.agent import get_agent
 
@@ -42,14 +44,16 @@ class DeleteMessagesRequest(BaseModel):
 async def generate_title_async(thread_id: str, first_message: str):
     try:
         api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise ValueError("未找到 DEEPSEEK_API_KEY，请在 .env 文件中设置。")
         base_url = "https://api.deepseek.com/v1"
-        llm = ChatOpenAI(model="deepseek-chat", api_key=api_key, base_url=base_url, temperature=0.3)
+        llm = ChatOpenAI(model="deepseek-chat", api_key=SecretStr(api_key), base_url=base_url, temperature=0.3)
         prompt = [
             SystemMessage(content="请根据用户的首次提问，概括出一个短于10个字的任务标题。直接输出标题内容，不要带任何标点、引号或多余解释。"),
             HumanMessage(content=first_message)
         ]
         response = await llm.ainvoke(prompt)
-        title = response.content.strip().strip('"').strip("'")
+        title = str(response.content).strip().strip('"').strip("'")
         if len(title) > 15:
             title = title[:15]
             
@@ -79,7 +83,7 @@ async def get_history(thread_id: str):
     messages = []
     async with AsyncSqliteSaver.from_conn_string("running_memory.db") as checkpointer:
         agent = get_agent(checkpointer)
-        config = {"configurable": {"thread_id": thread_id}}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
         state = await agent.aget_state(config)
         if hasattr(state, 'values') and 'messages' in state.values:
             for msg in state.values['messages']:
@@ -92,7 +96,7 @@ async def get_history(thread_id: str):
 async def truncate_history(thread_id: str, request: TruncateRequest):
     async with AsyncSqliteSaver.from_conn_string("running_memory.db") as checkpointer:
         agent = get_agent(checkpointer)
-        config = {"configurable": {"thread_id": thread_id}}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
         state = await agent.aget_state(config)
         
         if not hasattr(state, 'values') or 'messages' not in state.values:
@@ -119,7 +123,7 @@ async def truncate_history(thread_id: str, request: TruncateRequest):
 async def delete_messages(thread_id: str, request: DeleteMessagesRequest):
     async with AsyncSqliteSaver.from_conn_string("running_memory.db") as checkpointer:
         agent = get_agent(checkpointer)
-        config = {"configurable": {"thread_id": thread_id}}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
         
         remove_messages = [RemoveMessage(id=mid) for mid in request.message_ids if mid]
         if remove_messages:
@@ -161,12 +165,12 @@ async def chat_endpoint(request: ChatRequest):
             
         async with AsyncSqliteSaver.from_conn_string("running_memory.db") as checkpointer:
             agent = get_agent(checkpointer)
-            config = {"configurable": {"thread_id": request.thread_id}}
-            inputs = {"messages": [("user", request.message)]}
+            config: RunnableConfig = {"configurable": {"thread_id": request.thread_id}}
+            inputs: dict = {"messages": [("user", request.message)]}
             
             try:
                 # We use astream_events with version="v2" as it's standard for LangChain 0.2+
-                async for event in agent.astream_events(inputs, config=config, version="v2"):
+                async for event in agent.astream_events(inputs, config=config, version="v2"):  # type: ignore[arg-type]
                     kind = event["event"]
                     # Stream new tokens from the model
                     if kind == "on_chat_model_stream":

@@ -25,9 +25,21 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     context: Annotated[str, add_context]
 
+
+def _get_last_text(state: AgentState) -> str:
+    """安全获取最后一条消息的文本内容"""
+    content = state["messages"][-1].content
+    if isinstance(content, str):
+        return content
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == "text":
+            return part["text"]
+    return ""
+
+
 # 1.5. 定义数学前置节点 (拦截并剥夺大模型的计算权)
 def math_node(state: AgentState):
-    last_message = state["messages"][-1].content
+    last_message = _get_last_text(state)
     assessment = ""
     
     # 提取比赛成绩 (e.g. 800m跑了2分15秒)
@@ -69,7 +81,7 @@ def math_node(state: AgentState):
 
 # 2. 定义 RAG 节点
 def rag_node(state: AgentState):
-    last_message = state["messages"][-1].content
+    last_message = _get_last_text(state)
     try:
         docs = retrieve_knowledge(last_message)
         context = f"【《丹尼尔斯经典跑步训练法》知识库检索结果】\n{docs}"
@@ -80,7 +92,7 @@ def rag_node(state: AgentState):
 
 # 3. 定义数据解析节点 (替代原先大模型盲猜调用的 Tool)
 def data_node(state: AgentState):
-    last_message = state["messages"][-1].content
+    last_message = _get_last_text(state)
     
     # 纯 Python 的正则表达式解析
     # 尝试提取距离(km)、时间(min)和心率(bpm)
@@ -124,13 +136,16 @@ def data_node(state: AgentState):
 
 # 4. 定义大模型生成节点 (纯粹的合成器，不带 Tool)
 def llm_node(state: AgentState):
+    from pydantic import SecretStr
     api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise ValueError("未找到 DEEPSEEK_API_KEY，请在 .env 文件中设置。")
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
     
     llm = ChatOpenAI(
         model="deepseek-v4-flash",
-        openai_api_key=api_key,
-        openai_api_base=base_url,
+        api_key=SecretStr(api_key),
+        base_url=base_url,
         temperature=0.8,
         streaming=True
     )
@@ -167,7 +182,7 @@ def llm_node(state: AgentState):
 
 # 5. 前置白盒路由函数
 def route_request(state: AgentState) -> str:
-    last_message = state["messages"][-1].content
+    last_message = _get_last_text(state)
     
     # 明确检测到附带了 CSV 跑表数据
     if "【附件：用户上传的 Coros 跑表数据 CSV 文本】" in last_message:
