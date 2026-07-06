@@ -1,63 +1,72 @@
-# AI 中长跑教练智能体 (LangGraph + RAG)
+# 🏃‍♂️ AI 中长跑训练教练智能体 (Distance Running Coach Agent)
 
-这是一个基于 `LangGraph` 和大语言模型的智能中长跑训练辅助系统。该系统能够通过知识库查阅《丹尼尔斯经典跑步训练法》，并能够解析用户上传的 Coros 跑表数据（CSV格式）来计算生理负荷。
+基于《丹尼尔斯经典跑步训练法》打造的专业级中长跑训练辅助工具。结合 LangGraph 的强力状态机编排与 DeepSeek 大语言模型的逻辑推理，为大众跑者提供科学的配速规划、跑表数据智能解析与定制化课表调整。
 
-系统采用“前置白盒路由”架构，极大程度减少了 Token 消耗并避免了模型幻觉。
+---
 
-## 🎯 系统架构图
+## ✨ 核心特性 (Features)
 
-本项目抛弃了传统的 ReAct 盲猜调用机制，通过纯代码的条件边 (`Conditional Edges`) 实现了精准的流程控制。
+### 🧠 专业级大模型智能体 (AI Agent)
+- **跑力换算引擎 (VDOT Calculator)**：内置丹尼尔斯 VDOT 公式计算工具，有效避免通用大模型的“算数崩塌”幻觉，精准提供 E(轻松)/M(马拉松)/T(乳酸门槛)/I(间歇)/R(重复) 五个强度的绝对配速区间。
+- **本地跑表数据解析 (CSV Parser)**：支持用户直接拖拽上传 Coros (高驰)、Garmin (佳明) 等主流跑表导出的 CSV 运动记录，AI 教练能够洞察步频、心率、心率漂移等关键生理指标，并针对性纠正训练误区。
+- **运动生理学专家 Prompt**：内建防幻觉提示词，强行矫正模型在无氧心率滞后、单双脚步频转换等专业领域的认知偏差。
 
-```mermaid
-graph TD
-    START((START)) --> router_node{路由决策<br/>纯代码判断}
-    
-    router_node -->|包含 CSV 跑表数据| data_node[data_node<br/>解析 CSV 并计算 TRIMP 负荷]
-    router_node -->|包含理论/恢复等关键词| rag_node[rag_node<br/>查询本地 ChromaDB 知识库]
-    router_node -->|普通闲聊| llm_node[llm_node<br/>大语言模型综合总结]
-    
-    data_node -->|提取的生理指标注入 Context| llm_node
-    rag_node -->|检索的训练理论注入 Context| llm_node
-    
-    llm_node --> END((END))
-```
+### 🔄 商业级 Time Travel 交互机制 (交互降维打击)
+- **上下文回滚 (Edit & Retry)**：在历史气泡中点击编辑，支持将长文本转换为自适应拉伸的编辑卡片。修改保存后，后端通过 LangGraph 的 `RemoveMessage` 机制精准狙击并彻底清除脏数据，恢复纯净状态机，实现完美“时间漫游”。
+- **单键重试 (Regenerate)**：极简的刷新功能，全自动追溯最后一条提问，一键擦除上一轮失败回答并利用流式输出重新生成，告别复杂的上下文污染。
+- **无感并发起名 (Auto Title)**：用户发出首句提问时，底层启动并发协程，调用轻量级 LLM 生成精简 10 字标题并直接写入 SQLite，毫无卡顿，全自动更新侧边栏。
 
-## 🚀 极速体验指南
+### 🎨 极致的现代化 UI 体验 (Glassmorphism UX)
+- 玻璃拟态设计，原生平滑滚动 (`behavior: 'smooth'`)，搭配双重延时置底，杜绝闪烁。
+- SSE 动态打字机流式响应体验。
+- 空状态时的动态居中欢迎屏 (Welcome Screen) 无缝转场。
 
-本项目支持**原生环境直接启动**或通过**Docker 容器化**一键部署。在运行项目前，请确保在根目录创建 `.env` 文件，并填入：
+---
 
+## 🛠️ 技术架构 (Tech Stack)
+
+- **前端 (Frontend)**：HTML5 + Vanilla JS + Tailwind CSS (零框架，纯享极致性能)
+- **后端 (Backend)**：FastAPI + Uvicorn (异步协程，完美处理高并发 SSE)
+- **编排与推理层 (Agent)**：LangGraph + LangChain + DeepSeek-Chat API
+- **数据持久化 (Database)**：SQLite (`AsyncSqliteSaver` 物理落盘与 `user_sessions` 关系表)
+
+---
+
+## 🚀 快速启动 (Quick Start)
+
+### 1. 环境准备
+请确保本机已安装 Python 3.10+ 环境。克隆本仓库到本地。
+
+### 2. 配置环境变量
+在项目根目录新建或修改 `.env` 文件，填入您的 DeepSeek API 密钥：
 ```env
-DEEPSEEK_API_KEY="您的真实_API_KEY"
-DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
+DEEPSEEK_API_KEY=sk-xxxxxxxxx
 ```
 
-### 方式一：Docker 容器化运行（出厂满血版 - 推荐）
+### 3. 安装依赖
+```bash
+pip install -r requirements.txt
+```
 
-为了解决环境冲突，本项目已配置为“构建即向量化”模式。在构建镜像时，系统会自动下载 HuggingFace 的本地 Embedding 模型，并将 `data/` 目录下的所有语料持久化生成内置的 `chroma_db`。
+### 4. 启动服务
+双击运行根目录下的 `start.bat`，或者在终端中执行：
+```bash
+uvicorn backend.main:app --reload
+```
+服务启动后，打开浏览器访问：[http://localhost:8000](http://localhost:8000) 即可开始您的专属训练！
 
-1. **构建镜像**（需要耗费少许时间预下载本地权重文件）：
-   ```bash
-   docker build -t run_agent .
-   ```
-2. **启动容器**：
-   ```bash
-   docker run -p 8000:8000 run_agent
-   ```
-3. 在浏览器打开：`http://localhost:8000`
+---
 
-### 方式二：本地原生运行（开发测试用）
-
-1. **安装依赖**：
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. **（可选）手动重建知识库**（当您在 `data/` 文件夹下新增了 txt 语料后必须执行）：
-   ```bash
-   python rebuild_db.py
-   ```
-3. **拉起服务**：
-   直接双击 `start.bat`，或在命令行运行：
-   ```bash
-   uvicorn backend.main:app --reload
-   ```
-4. 在浏览器打开：`http://localhost:8000`
+## 📂 项目结构 (Project Structure)
+```
+.
+├── backend/
+│   ├── main.py       # FastAPI 路由控制器与并发任务中心
+│   ├── agent.py      # LangGraph 状态机编排与记忆挂载
+│   └── tools.py      # VDOT 计算器与 CSV 数据解析器
+├── frontend/
+│   └── index.html    # 现代化玻璃拟态 UI 核心逻辑
+├── requirements.txt
+├── .env
+└── start.bat
+```
