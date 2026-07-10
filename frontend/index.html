@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能中长跑周期化训练与负荷监控 Agent</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: {} }
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
@@ -28,6 +34,8 @@
         .markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; }
         .markdown-body h3 { font-size: 1.125rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
         .markdown-body strong { font-weight: 600; color: #0f172a; }
+        .dark .markdown-body strong, .dark .markdown-body h1, .dark .markdown-body h2, .dark .markdown-body h3 { color: #f8fafc; }
+        .dark .markdown-body h1 { border-bottom-color: #475569; }
         .markdown-body ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
         .markdown-body ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
         .markdown-body table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; margin-bottom: 1rem; }
@@ -42,10 +50,18 @@
         .scrollbar-hide { -ms-overflow-style: none !important; scrollbar-width: none !important; }
     </style>
 </head>
-<body class="bg-gradient-to-br from-indigo-100 via-slate-50 to-sky-200 h-screen flex font-sans text-slate-800 overflow-x-hidden overflow-y-hidden bg-fixed">
+<body class="bg-gradient-to-br from-indigo-100 via-slate-50 to-sky-200 h-screen flex font-sans text-slate-800 overflow-x-hidden overflow-y-hidden bg-fixed dark:from-slate-900 dark:via-[#0b0f19] dark:to-[#020617] dark:text-slate-200">
+    <button id="theme-toggle-btn" class="absolute top-4 right-6 z-50 p-2 rounded-full bg-white/50 backdrop-blur-md border border-slate-200 text-slate-600 hover:bg-white/80 transition-all duration-300 shadow-sm outline-none dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-700" title="切换深/浅色主题">
+        <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+        </svg>
+        <svg id="theme-toggle-light-icon" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+    </button>
 
-    <aside id="sidebar" class="w-64 bg-white/40 backdrop-blur-xl border-r border-white/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] flex flex-col hidden md:flex z-30 relative h-full transition-all duration-300 overflow-hidden shrink-0">
-        <div class="p-4 border-b border-white/40 flex items-center justify-between h-16 shrink-0 relative">
+    <aside id="sidebar" class="w-64 bg-white/40 backdrop-blur-xl border-r border-white/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] flex flex-col hidden md:flex z-30 relative h-full transition-all duration-300 overflow-hidden shrink-0 dark:bg-white/[0.02] dark:border-white/[0.08] dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+        <div class="p-4 border-b border-white/40 dark:border-transparent flex items-center justify-between h-16 shrink-0 relative">
             <div class="flex items-center gap-3 overflow-hidden font-bold text-lg text-slate-800 w-full">
                 <button id="sidebar-toggle-btn" class="flex items-center justify-center p-1 rounded-lg text-blue-600 hover:bg-blue-100/50 transition-all outline-none group relative shrink-0" title="点击展开侧边栏">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0 transition-transform duration-300 group-hover:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -53,7 +69,7 @@
                     </svg>
                     <span id="expand-tooltip" class="absolute left-10 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 pointer-events-none transition-opacity duration-300 whitespace-nowrap hidden group-hover:opacity-100 z-50">展开侧边栏 ⏩</span>
                 </button>
-                <span id="sidebar-title-text" class="whitespace-nowrap transition-opacity duration-200 select-none">中长跑 AI 教练</span>
+                <span id="sidebar-title-text" class="whitespace-nowrap transition-opacity duration-200 select-none dark:text-slate-200">中长跑 AI 教练</span>
             </div>
             <button id="collapse-sidebar-btn" class="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-white/50 transition-all outline-none shrink-0" title="收起侧边栏">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -62,7 +78,7 @@
             </button>
         </div>
 
-        <div class="p-4 border-b border-white/40 flex justify-center items-center shrink-0">
+        <div class="p-4 border-b border-white/40 dark:border-transparent flex justify-center items-center shrink-0">
             <button id="new-chat-btn" class="w-full bg-blue-600/90 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-xl shadow-md transition-all duration-300 flex items-center justify-center gap-2 backdrop-blur-md overflow-hidden whitespace-nowrap">
                 <svg class="shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -81,9 +97,9 @@
 
         <main class="flex-1 max-w-4xl w-full mx-auto p-4 pt-12 md:pt-4 flex flex-col h-full relative">
             
-            <div id="chat-box" class="flex-1 bg-white/30 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.05)] border border-white/50 p-4 overflow-y-auto mb-4 flex flex-col gap-4 relative"></div>
+            <div id="chat-box" class="flex-1 bg-white/30 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.05)] border border-white/50 p-4 overflow-y-auto mb-4 flex flex-col gap-4 relative dark:bg-white/[0.02] dark:border-white/[0.08] dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)]"></div>
 
-            <button id="scroll-bottom-btn" class="absolute bottom-48 right-8 w-10 h-10 bg-white/90 border border-slate-200 shadow-xl backdrop-blur-md rounded-full flex items-center justify-center text-slate-600 hover:text-blue-600 hover:scale-105 transition-all duration-300 opacity-0 pointer-events-none z-20">
+            <button id="scroll-bottom-btn" class="absolute bottom-48 right-8 w-10 h-10 bg-white/90 border border-slate-200 shadow-xl backdrop-blur-md rounded-full flex items-center justify-center text-slate-600 hover:text-blue-600 hover:scale-105 transition-all duration-300 opacity-0 pointer-events-none z-20 dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-700">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                 </svg>
@@ -91,9 +107,9 @@
 
             <div id="timeline-nav" class="hidden md:flex flex-col absolute -right-6 top-4 bottom-28 w-4 overflow-y-auto items-center gap-3 z-10 scrollbar-hide py-2 select-none"></div>
 
-            <div class="bg-white/50 backdrop-blur-lg rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.05)] border border-white/50 p-3 relative z-20 shrink-0">
+            <div class="bg-white/50 backdrop-blur-lg rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.05)] border border-white/50 p-3 relative z-20 shrink-0 dark:bg-white/[0.02] dark:border-white/[0.08] dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
                 <div class="mb-2 flex items-center gap-2 text-sm">
-                    <label for="csv-upload" class="cursor-pointer bg-white/70 hover:bg-white backdrop-blur-sm text-slate-700 py-1.5 px-3 rounded-lg flex items-center gap-1 transition-colors border border-white/50 shadow-sm">
+                    <label for="csv-upload" class="cursor-pointer bg-white/70 hover:bg-white dark:bg-slate-800/80 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-white/10 backdrop-blur-sm text-slate-700 py-1.5 px-3 rounded-lg flex items-center gap-1 transition-colors border border-white/50 shadow-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                         上传 Coros 数据 (CSV)
                     </label>
@@ -104,7 +120,7 @@
                     </button>
                 </div>
                 <div class="flex items-end gap-2">
-                    <textarea id="user-input" class="flex-1 bg-white/60 backdrop-blur-sm border border-white/50 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white/80 transition-all min-h-[60px] max-h-[120px]" placeholder="描述你的训练感受或提问... (按 Enter 发送，Shift+Enter 换行)"></textarea>
+                    <textarea id="user-input" class="flex-1 bg-white/60 backdrop-blur-sm border border-white/50 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white/80 transition-all min-h-[60px] max-h-[120px] dark:bg-black/20 dark:border-white/10 dark:text-slate-200 dark:focus:border-blue-500/50" placeholder="描述你的训练感受或提问... (按 Enter 发送，Shift+Enter 换行)"></textarea>
                     <button id="send-btn" class="bg-blue-600/90 hover:bg-blue-600 backdrop-blur-md text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-colors flex items-center gap-2 h-[60px]">
                         发送
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
@@ -115,6 +131,39 @@
     </div>
 
     <script>
+        // 1. 初始化主题（检查 localStorage 或系统偏好）
+        const themeToggleBtn = document.getElementById('theme-toggle-btn');
+        const darkIcon = document.getElementById('theme-toggle-dark-icon');
+        const lightIcon = document.getElementById('theme-toggle-light-icon');
+
+        function updateThemeUI() {
+            if (document.documentElement.classList.contains('dark')) {
+                lightIcon.classList.remove('hidden');
+                darkIcon.classList.add('hidden');
+            } else {
+                darkIcon.classList.remove('hidden');
+                lightIcon.classList.add('hidden');
+            }
+        }
+
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        updateThemeUI();
+
+        // 2. 绑定切换事件
+        themeToggleBtn.addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+            if (document.documentElement.classList.contains('dark')) {
+                localStorage.theme = 'dark';
+            } else {
+                localStorage.theme = 'light';
+            }
+            updateThemeUI();
+        });
+
         const chatBox = document.getElementById('chat-box');
         const timelineNav = document.getElementById('timeline-nav');
         const userInput = document.getElementById('user-input');
@@ -212,7 +261,7 @@
         function renderWelcomeScreen() {
             chatBox.innerHTML = `
                 <div id="welcome-screen" class="flex flex-col items-center justify-center h-full text-center p-6 my-auto opacity-100 transition-opacity duration-300">
-                    <div class="w-16 h-16 bg-blue-100/90 rounded-full flex items-center justify-center text-3xl mb-4 shadow-sm border border-white">🏃‍♂️</div>
+                    <div class="w-16 h-16 bg-blue-100/90 dark:bg-slate-800/80 rounded-full flex items-center justify-center text-3xl mb-4 shadow-sm border border-white dark:border-white/10">🏃‍♂️</div>
                     <h2 class="text-xl font-bold text-slate-700 mb-2">你好！我是中长跑 AI 教练</h2>
                     <p class="text-sm text-slate-500 max-w-md leading-relaxed">
                         基于《丹尼尔斯经典跑步训练法》打造。<br>
@@ -263,7 +312,7 @@
                 
                 data.sessions.forEach(s => {
                     const container = document.createElement('div');
-                    container.className = `flex items-center w-full rounded-xl border transition-colors ${s.thread_id === currentThreadId ? 'bg-white/80 shadow-sm border-white/60 text-slate-800 font-semibold' : 'hover:bg-white/40 border-transparent text-slate-600'}`;
+                    container.className = `flex items-center w-full rounded-xl border transition-colors ${s.thread_id === currentThreadId ? 'bg-white/80 shadow-sm border-white/60 text-slate-800 font-semibold dark:bg-white/[0.08] dark:border-white/10 dark:text-white dark:shadow-none' : 'hover:bg-white/40 border-transparent text-slate-600 dark:hover:bg-white/[0.04] dark:text-slate-400'}`;
                     
                     const btn = document.createElement('button');
                     btn.className = `flex-1 text-left px-3 py-2.5 text-sm truncate`;
@@ -411,7 +460,7 @@
             avatar.textContent = role === 'user' ? '我' : 'AI';
 
             const bubble = document.createElement('div');
-            bubble.className = `p-3 rounded-2xl max-w-[85%] shadow-sm backdrop-blur-md border relative ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50 rounded-tr-none whitespace-pre-wrap' : 'bg-white/80 text-slate-800 border-white/50 rounded-tl-none'}`;
+            bubble.className = `p-3 rounded-2xl max-w-[85%] shadow-sm backdrop-blur-md border relative ${role === 'user' ? 'bg-slate-800/90 text-white border-slate-700/50 rounded-tr-none whitespace-pre-wrap dark:bg-blue-600/90 dark:border-blue-500/50 dark:text-white' : 'bg-white/80 text-slate-800 border-white/50 rounded-tl-none dark:bg-[#1e293b]/80 dark:border-white/10 dark:text-slate-200'}`;
             if (isHtml) bubble.innerHTML = content; else bubble.textContent = content;
 
             if (msgId) {
