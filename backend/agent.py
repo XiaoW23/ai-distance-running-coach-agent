@@ -110,6 +110,7 @@ def data_node(state: AgentState):
     duration_match = re.search(r'(时间|Time|时长)[\s:=]*([\d\.]+)', last_message, re.IGNORECASE)
     hr_match = re.search(r'(心率|HR|Heart Rate)[\s:=]*(\d+)', last_message, re.IGNORECASE)
     
+    assessment = ""
     if distance_match and hr_match:
         dist = float(distance_match.group(2))
         hr = int(hr_match.group(2))
@@ -136,7 +137,7 @@ def data_node(state: AgentState):
             assessment += " 建议接下来安排至少1-2天的轻松跑或休息。"
             
         # [新增] 独立文件分布法则：多 CSV 步频诊断
-        import csv, io, statistics, re
+        import csv, io, statistics
         
         attachment_section = last_message.split('【提问】')[0] if '【提问】' in last_message else last_message
         pattern = r'【附件\d+：(.*?)】\n(.*?)(?=【附件\d+：|\Z)'
