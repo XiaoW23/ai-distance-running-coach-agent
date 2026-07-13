@@ -66,16 +66,26 @@ def math_node(state: AgentState):
     if cadence_match and stride_match:
         cadence = float(cadence_match.group(1))
         stride = float(stride_match.group(1))
-        actual_cadence = cadence * 2 if cadence < 120 else cadence
-        speed_m_per_min = actual_cadence * stride
-        if speed_m_per_min > 0:
-            pace_decimal = 1000 / speed_m_per_min
-            pace_min = int(pace_decimal)
-            pace_sec = int((pace_decimal - pace_min) * 60)
-            assessment += f"【系统前置计算：步频步幅物理验算】\n"
-            assessment += f"用户提及了 步频 {cadence} 和 步幅 {stride}m。\n"
-            assessment += f"系统计算真实配速 = 1000 / ({actual_cadence} × {stride}) = {pace_min}:{pace_sec:02d}/km。\n"
-            assessment += f"在给出建议时，你必须严格引用该系统提前计算好的物理配速结果，比对该结果是否超出用户当前 VDOT 水平。如果超出，请在回答中指出建议不合理并驳回，严禁自行重新计算！\n"
+        
+        assessment += f"【系统前置计算：步频步幅双重物理验算】\n"
+        assessment += f"用户提及了 步频 {cadence} 和 步幅 {stride}m。\n"
+        
+        # 情况 A: 单脚
+        cadence_a = cadence * 2
+        speed_a = cadence_a * stride
+        if speed_a > 0:
+            pace_dec_a = 1000 / speed_a
+            pace_min_a, pace_sec_a = int(pace_dec_a), int((pace_dec_a - int(pace_dec_a)) * 60)
+            assessment += f"情况 A (若为单脚 RPM, 实际总频 {cadence_a}): 真实配速 = 1000 / ({cadence_a} × {stride}) = {pace_min_a}:{pace_sec_a:02d}/km。\n"
+            
+        # 情况 B: 双脚
+        speed_b = cadence * stride
+        if speed_b > 0:
+            pace_dec_b = 1000 / speed_b
+            pace_min_b, pace_sec_b = int(pace_dec_b), int((pace_dec_b - int(pace_dec_b)) * 60)
+            assessment += f"情况 B (若为双脚 SPM, 实际总频 {cadence}): 真实配速 = 1000 / ({cadence} × {stride}) = {pace_min_b}:{pace_sec_b:02d}/km。\n"
+            
+        assessment += f"请结合用户描述的场景强度（慢跑或冲刺），引用上述计算结果进行交叉常识推断并做出情境选择。严禁自行计算配速！\n"
             
     return {"context": assessment} if assessment else {}
 
@@ -124,12 +134,69 @@ def data_node(state: AgentState):
         assessment += f"生理负荷(TRIMP)计算得分: {trimp:.1f}。强度区间属于: {zone}。"
         if trimp > 150:
             assessment += " 建议接下来安排至少1-2天的轻松跑或休息。"
-    else:
-        # 如果正则匹配不到，就把原数据抛进 context 供大模型直接看
-        assessment = "系统未能从 CSV 中精确提取出规则的数据。请依据用户提供的原始数据进行分析评估。"
-        csv_start = last_message.find("【附件")
-        csv_text = last_message[csv_start:csv_start+800] if csv_start != -1 else ""
-        assessment += f"\n[原始数据片段]\n{csv_text}"
+            
+        # [新增] 独立文件分布法则：多 CSV 步频诊断
+        import csv, io, statistics, re
+        
+        attachment_section = last_message.split('【提问】')[0] if '【提问】' in last_message else last_message
+        pattern = r'【附件\d+：(.*?)】\n(.*?)(?=【附件\d+：|\Z)'
+        matches = list(re.finditer(pattern, attachment_section, re.DOTALL))
+        
+        if matches:
+            for match in matches:
+                filename = match.group(1).strip()
+                csv_content = match.group(2).strip()
+                if not csv_content:
+                    continue
+                try:
+                    reader = csv.DictReader(io.StringIO(csv_content))
+                    cadences = []
+                    paces_sec = []
+                    for row in reader:
+                        cad_key = next((k for k in row.keys() if k and 'Cadence' in k), None)
+                        pace_key = next((k for k in row.keys() if k and 'Pace' in k), None)
+                        
+                        if cad_key and row.get(cad_key, '').strip():
+                            try:
+                                c_val = float(row[cad_key])
+                                p_val_sec = 0
+                                if pace_key and row.get(pace_key, '').strip():
+                                    p_parts = row[pace_key].split(':')
+                                    if len(p_parts) >= 2:
+                                        p_val_sec = int(p_parts[-2]) * 60 + float(p_parts[-1])
+                                        
+                                # 排除走休和无效极慢配速 (慢于 7:00/km 即 420s)
+                                if c_val > 0 and 0 < p_val_sec < 420:
+                                    cadences.append(c_val)
+                                    paces_sec.append(p_val_sec)
+                            except: pass
+                            
+                    median_cadence = statistics.median(cadences) if cadences else 0
+                    median_pace_sec = statistics.median(paces_sec) if paces_sec else 0
+                    
+                    if median_cadence > 0:
+                        assessment += f"\n\n【系统强制注入：{filename} 独立步频基准诊断】\n清洗后有效跑段的中位步频为 {median_cadence:.1f}，中位配速为 {int(median_pace_sec//60)}:{int(median_pace_sec%60):02d}/km。\n"
+                        if median_cadence < 110:
+                            assessment += "=> 结论：该附件采用【单脚 RPM】记录。已执行单脚步频×2换算约束，绝对不允许直接使用原始低值！"
+                        elif median_cadence >= 140:
+                            assessment += "=> 结论：该附件采用【双脚 SPM】记录。请直接使用原值分析，严禁执行乘以2的操作！"
+                        else:
+                            if median_pace_sec > 225:
+                                assessment += "=> 结论：检测到基准步频处于中间灰度带 (110-139)。已根据有氧配速慢于 3:45/km 自动判定。该附件为【单脚 RPM】，请将步频统一 × 2 换算！"
+                            else:
+                                assessment += "=> 结论：检测到基准步频处于中间灰度带，且配速极快。判定为【双脚 SPM】，请直接使用原值分析。"
+                except Exception as e:
+                    assessment += f"\n附件 {filename} 步频诊断失败: {str(e)}"
+        else:
+            # 向下兼容单个或未能精确提取的数据
+            csv_match = re.search(r'【附件】\n(.*?)\n\n【提问】', last_message, re.DOTALL)
+            if csv_match:
+                assessment += "\n[系统提示：检测到旧格式的单文件附件，未执行多文件分离诊断。]"
+            else:
+                csv_start = last_message.find("【附件")
+                csv_text = last_message[csv_start:csv_start+800] if csv_start != -1 else ""
+                if csv_text:
+                    assessment += f"\n[原始数据片段未能精确提取]\n{csv_text}"
         
     context = f"【跑表数据解析与负荷评估】\n{assessment}"
     return {"context": context}
@@ -150,18 +217,34 @@ def llm_node(state: AgentState):
         streaming=True
     )
     
-    system_msg = """你是一个极其严谨的专业中长跑智能教练。
+    from datetime import datetime
+    current_date_str = datetime.now().strftime("%Y年%m月%d日")
+    
+    system_msg = f"""你是一个极其严谨的专业中长跑智能教练。
 请遵循以下回答规范：
-1. **大量使用 Emoji 表情符号** 🏃‍♂️📊💪🔥，保持语气活泼、人性化，就像真正的教练在和学员沟通。
+【⏰ 时间鉴权与实体规则 — 核心铁律】
+1. 现实物理参考时间：当前系统时间为 {current_date_str}。该时间仅作为你理解“今天、近期”等相对词汇的参照锚点。
+2. 严禁时间覆盖：严格区分【系统当前时间】与【用户训练数据发生的时间】！
+3. 训练时间解析优先级：
+   - 第一优先级：用户在自然语言中显式声明的时间（如“前两天7月5日”）；
+   - 第二优先级：用户上传的 Coros 表格文件名中的日期戳（如 20260705 代表 2026年7月5日的训练日志）；
+   - 第三优先级：若用户完全没提时间，才默认咨询的是【系统当前时间】。
+4. 在分析日志时，务必在回答开头准确复述具体的训练发生时间（如：“收到你于 7月5日 的 800m 训练数据...”），严禁张冠李戴说成当前系统时间！
+
+1. 放弃大量堆砌 Emoji 的风格。仅在以下特定场景极简、克制地使用 Emoji：
+   - 标题与结构划分：在输出分析框架时使用（如 📊 数据分析、💡 核心建议、⚠️ 异常预警）。
+   - 严禁在段落正文和句子中间夹杂任何表情符号，保持专业、严谨但不失亲和力的顶级教练口吻，文本排版以高可读性和信息密度为第一优先级。
 2. 你的回答需要格式极其清晰，多使用加粗、列表和引用，便于跑者在手机上快速阅读。
 3. 如果系统为你注入了【跑表数据】，请在开头主动提及“我已经仔细分析了你的跑表数据...”。
 4. 如果系统为你注入了【知识库检索结果】，请明确提及“根据丹尼尔斯经典训练法”。
-5. **格式严禁**：在表示数字区间时（如心率 130 到 140），必须使用连字符（例如 130-140），绝对不能使用波浪号（~）。
-6. **剥夺计算权**：绝对禁止你去执行乘除法运算！在给出步频、步幅和配速建议时，你必须严格引用系统前置节点算好的【VDOT配速表】和【物理验算配速结果】，比对该结果是否合理并直言不讳。如果超出常理，直接驳回，严禁自行捏造公式重新计算。
-7. **短距离无氧心率滞后规则（极高优）**：当识别到距离 <= 400米或单组时间 <= 90秒的高强度冲刺圈时，严禁将冲刺圈平均心率低、而随后休息圈心率极高判定为“设备捕捉错误”。必须明确向用户解释：这是由于无氧运动的心肺响应滞后性，心率峰值必然出现在冲刺停止后的休息初期。此时应以休息圈记录到的最高心率作为该组冲刺的实际心率峰值参考。
-8. **步频（SPM）强制双脚转换规则**：Coros 导出的 CSV 步频（Cadence）数据默认是单脚记录。在解析所有数据时（不论快慢配速），你必须将读取到的所有步频数值无条件 × 2，并严格使用转换后的双脚步频进行物理公式验算和专业评价。
-9. **年龄基准修正**：在没有明确说明年龄的情况下，默认该用户为 20 岁的青年中长跑运动员（主攻 800m/1500m），预估最大心率（HRmax）基准锁定在 198 左右，停止使用 30 岁的大众跑者模板进行推演。
-10. **间歇恢复心率的交互规则（极高优）**：由于跑表 CSV 导出通常只包含整圈的“平均心率”和“最高心率”，无法体现组间休息结束那一刻的“恢复瞬时心率”。在点评间歇/重复训练时，你必须在回答的末尾主动提问：“对了，你这几组间歇休息结束、准备起跑下一组时，手表上的实时心率大概降到多少了？” 以便引导用户补全丢失的关键生理指标。"""
+5. 格式严禁：在表示数字区间时（如心率 130 到 140），必须使用连字符（例如 130-140），绝对不能使用波浪号（~）。
+6. 剥夺计算权：绝对禁止你去执行乘除法运算！在给出步频、步幅和配速建议时，你必须严格引用系统前置节点算好的【VDOT配速表】和【物理验算配速结果】，比对该结果是否合理并直言不讳。如果超出常理，直接驳回，严禁自行捏造公式重新计算。
+7. 短距离无氧心率滞后规则（极高优）：当识别到距离 <= 400米或单组时间 <= 90秒的高强度冲刺圈时，严禁将冲刺圈平均心率低、而随后休息圈心率极高判定为“设备捕捉错误”。必须明确向用户解释：这是由于无氧运动的心肺响应滞后性，心率峰值必然出现在冲刺停止后的休息初期。此时应以休息圈记录到的最高心率作为该组冲刺的实际心率峰值参考。
+8. 步频数值交叉校验与全局一致性（极高优）：
+   - 当系统提供【CSV全局步频基准诊断】时，你必须严格服从系统断言。若系统要求全表乘2，则所有提到的步频必须乘2（即便是 130 也要变成 260）；若系统要求保持原值，严禁擅自乘2。
+   - 当用户在自然语言文本中提及孤立的步频时，结合前置【步频步幅双重物理验算】给出的情况A(单脚)和情况B(双脚)进行常识推断：冲坡或间歇（配速快于3:30/km）大概率为单脚(110-135)需选情况A；轻松跑或长跑（配速慢于4:30/km）大概率为双脚(150-190)需选情况B。直接引用配速，严禁自行计算！
+9. 年龄基准修正：在没有明确说明年龄的情况下，默认该用户为 20 岁的青年中长跑运动员（主攻 800m/1500m），预估最大心率（HRmax）基准锁定在 198 左右，停止使用 30 岁的大众跑者模板进行推演。
+10. 间歇恢复心率的交互规则（极高优）：由于跑表 CSV 导出通常只包含整圈的“平均心率”和“最高心率”，无法体现组间休息结束那一刻的“恢复瞬时心率”。在点评间歇/重复训练时，你必须在回答的末尾主动提问：“对了，你这几组间歇休息结束、准备起跑下一组时，手表上的实时心率大概降到多少了？” 以便引导用户补全丢失的关键生理指标。"""
 
     context = state.get("context", "")
     if context:
